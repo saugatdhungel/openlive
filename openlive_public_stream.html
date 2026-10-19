@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenLive — Public Stream</title>
+<style>
+:root{--bg:#080d19;--panel:#111a2c;--line:#293752;--text:#f4f7ff;--muted:#a8b5cc;--accent:#ff3158;--blue:#426bff}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#14213c,#080d19 55%);color:var(--text);font:16px system-ui,-apple-system,Segoe UI,Arial,sans-serif;min-height:100vh}
+header{max-width:1100px;margin:auto;padding:18px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);gap:12px}.brand{font-size:1.2rem;font-weight:900;letter-spacing:.4px}.brand b{color:var(--accent)}.pill{border:1px solid var(--line);border-radius:30px;padding:7px 11px;color:var(--muted);font-size:.82rem}.wrap{max-width:1100px;margin:24px auto;padding:0 16px;display:grid;grid-template-columns:minmax(0,1.6fr) minmax(270px,1fr);gap:18px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden;min-width:0}.screen{aspect-ratio:16/9;background:#03060c;position:relative;display:grid;place-items:center}.screen video{width:100%;height:100%;object-fit:contain;display:none}.placeholder{text-align:center;color:var(--muted);padding:20px}.placeholder .emoji{font-size:3rem}.livebadge{position:absolute;left:12px;top:12px;border-radius:8px;background:#202b42;padding:6px 10px;font-size:.78rem;font-weight:900}.livebadge.on{background:var(--accent)}.inside{padding:16px}.row{display:flex;flex-wrap:wrap;gap:9px}button,.btn{font:inherit;font-size:.9rem;font-weight:750;padding:11px 13px;border:1px solid var(--line);border-radius:10px;background:#24314d;color:white;cursor:pointer}button.primary{background:var(--accent);border-color:var(--accent)}button.blue{background:var(--blue);border-color:var(--blue)}button:disabled{opacity:.45;cursor:not-allowed}label{display:block;margin:14px 0 6px;color:#d7e0f2;font-size:.88rem}input,textarea{width:100%;border:1px solid var(--line);border-radius:10px;background:#080f20;color:white;padding:11px;font:inherit}textarea{min-height:70px;resize:vertical}.muted{color:var(--muted);font-size:.88rem;line-height:1.5}.status{padding:11px;border:1px solid var(--line);border-radius:11px;background:#091122;color:var(--muted);font-size:.86rem;line-height:1.5;margin-bottom:12px;overflow-wrap:anywhere}.sharelink{display:flex;gap:7px}.sharelink input{min-width:0}.note{max-width:1100px;padding:0 16px;margin:0 auto 28px;color:var(--muted);font-size:.85rem;line-height:1.6}.hidden{display:none!important}.viewmode{grid-template-columns:1fr;max-width:900px}.viewmode .sidebar{display:none}.viewmode .watchonly{display:block}.watchonly{display:none}@media(max-width:760px){.wrap{grid-template-columns:1fr;margin-top:15px}header{padding:15px}.row button{flex:1 1 42%}.inside{padding:14px}}
+</style>
+</head>
+<body>
+<header><div class="brand">OPEN<b>LIVE</b></div><div class="pill" id="modePill">HOST STUDIO</div></header>
+<main class="wrap" id="layout">
+<section class="panel">
+ <div class="screen">
+  <video id="video" autoplay playsinline muted></video>
+  <div class="placeholder" id="placeholder"><div class="emoji">📡</div><strong id="previewTitle">Your public live preview</strong><div class="muted">Start a stream to show video here</div></div>
+  <div class="livebadge" id="badge">OFFLINE</div>
+ </div>
+ <div class="inside">
+  <h2 id="streamTitleDisplay" style="font-size:1.05rem;margin:0 0 6px">My Live Stream</h2>
+  <p class="muted" id="streamDescription" style="margin-top:0">Welcome to my stream.</p>
+  <div class="row" id="hostControls">
+   <button class="primary" id="startScreen">Share Screen & Go Live</button>
+   <button class="blue" id="startCamera">Use Camera & Go Live</button>
+   <button id="mute" disabled>Mute Mic</button><button id="stop" disabled>Stop Live</button>
+  </div>
+  <div class="row watchonly"><button id="reconnect" class="blue">Reconnect to Live</button></div>
+ </div>
+</section>
+<aside class="panel sidebar"><div class="inside">
+ <h2 style="margin:0 0 5px">Your Studio</h2><p class="muted">Set a title, start sharing, then send viewers your public link.</p>
+ <label for="title">Live title</label><input id="title" maxlength="90" value="My Live Stream">
+ <label for="desc">Description</label><textarea id="desc" maxlength="300">Welcome to my stream.</textarea>
+ <div class="status" id="status" aria-live="polite">Connecting to the signaling service…</div>
+ <label>Public viewer link</label><div class="sharelink"><input id="viewerLink" readonly placeholder="Link appears after connection"><button id="copy" disabled>Copy</button></div>
+ <p class="muted">Publish this file on an HTTPS host such as GitHub Pages. Anyone with the viewer link may be able to watch while your stream is running.</p>
+ <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
+ <h3 style="font-size:1rem">How it works</h3><p class="muted">This demo uses PeerJS for connection signaling and WebRTC for peer-to-peer video. It has no recording or built-in chat.</p>
+</div></aside>
+</main>
+<div class="note">Screen sharing depends on browser/device support. Many mobile browsers do not allow a website to capture another app's screen; on those devices, use Android's supported screen-sharing flow or stream from a desktop browser. This demo is for small audiences: viewers connect peer-to-peer, so your upload bandwidth is shared among viewers. For reliable public streaming at scale, use a managed WebRTC/RTMP service and a backend.</div>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(() => {
+ const $ = id => document.getElementById(id);
+ const params = new URLSearchParams(location.search);
+ const watchId = params.get('watch');
+ const video = $('video');
+ let peer = null, localStream = null, micMuted = false, viewerCalls = [], dataConnections = [];
+ const isViewer = !!watchId;
+ if (isViewer) {
+   $('layout').classList.add('viewmode'); $('modePill').textContent='VIEWER MODE';
+   $('hostControls').classList.add('hidden'); $('previewTitle').textContent='Connecting to live…';
+   $('streamTitleDisplay').textContent='Public Live Stream'; $('streamDescription').textContent='Connecting to the broadcaster.';
+   $('startScreen').disabled=true; $('startCamera').disabled=true;
+ }
+ function status(message){$('status').textContent=message}
+ function setLive(on){$('badge').textContent=on?'LIVE':'OFFLINE';$('badge').classList.toggle('on',on)}
+ function setDetails(){if(!isViewer){$('streamTitleDisplay').textContent=$('title').value.trim()||'My Live Stream';$('streamDescription').textContent=$('desc').value.trim()||'Welcome to my stream.'}}
+ $('title').addEventListener('input',setDetails);$('desc').addEventListener('input',setDetails);
+ function makePeer(id) {
+   return new Promise((resolve,reject)=>{
+     if(!window.Peer){reject(new Error('PeerJS failed to load. Check your internet connection.'));return}
+     const p = new Peer(id || undefined, {debug:0});
+     p.on('open', id => resolve({p,id}));
+     p.on('error', err => {status('Connection error: '+err.type+'. Refresh the page and try again.'); if(err.type==='unavailable-id')reject(err);});
+     p.on('disconnected',()=>status('Signaling disconnected. Trying to reconnect…'));
+   });
+ }
+ async function initHost(){
+   try{
+    const result=await makePeer(); peer=result.p;
+    const link=location.href.split('?')[0]+'?watch='+encodeURIComponent(result.id);
+    $('viewerLink').value=link;$('copy').disabled=false;
+    status('Studio ready. Start a stream, then share the viewer link.');
+    peer.on('connection', conn=>{
+      dataConnections.push(conn);
+      conn.on('open',()=>{
+       conn.send({type:'hello',title:$('title').value,description:$('desc').value});
+       if(localStream) sendStream(conn.peer);
+      });
+      conn.on('data',data=>{if(data&&data.type==='request-stream'&&localStream)sendStream(conn.peer)});
+      conn.on('close',()=>{dataConnections=dataConnections.filter(c=>c!==conn)});
+    });
+   }catch(e){status('Could not connect. Check internet and reload the page. '+(e.message||''))}
+ }
+ function sendStream(viewerId){
+   if(!peer||!localStream)return;
+   try{const call=peer.call(viewerId,localStream);viewerCalls.push(call);call.on('error',()=>{});}
+   catch(e){status('Could not connect to a viewer: '+e.message)}
+ }
+ async function startCapture(screenShare){
+   if(!peer||!peer.open){status('Studio is still connecting. Wait a moment.');return}
+   try{
+     if(localStream)stopStream(false);
+     if(screenShare){
+       if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+         status('This browser does not support website screen sharing. Try a desktop Chrome browser, or use Camera Live on this phone.');return;
+       }
+       localStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
+       // If browser provides no shared-system audio, microphone can be added when permitted.
+       if(localStream.getAudioTracks().length===0){
+         try{const mic=await navigator.mediaDevices.getUserMedia({audio:true});mic.getAudioTracks().forEach(t=>localStream.addTrack(t));}
+         catch(e){/* screen video can still be shared without microphone */}
+       }
+       localStream.getVideoTracks()[0]?.addEventListener('ended',()=>stopStream());
+     } else {
+       localStream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:true});
+     }
+     video.srcObject=localStream;video.muted=true;video.style.display='block';$('placeholder').classList.add('hidden');
+     $('mute').disabled=false;$('stop').disabled=false;setLive(true);status('LIVE is running. Share your public viewer link with people.');
+     dataConnections.forEach(c=>{if(c.open)sendStream(c.peer)});
+   }catch(e){localStream=null;status('Could not start stream: '+e.message+'. Check camera/mic/screen permissions.')}
+ }
+ function stopStream(update=true){
+   if(localStream)localStream.getTracks().forEach(t=>t.stop());
+   localStream=null;video.srcObject=null;video.style.display='none';$('placeholder').classList.remove('hidden');
+   $('mute').disabled=true;$('stop').disabled=true;$('mute').textContent='Mute Mic';micMuted=false;
+   viewerCalls.forEach(c=>{try{c.close()}catch(e){}});viewerCalls=[];
+   if(update){setLive(false);status('Stream stopped. Your viewer link remains the same.')}
+ }
+ $('startScreen').addEventListener('click',()=>startCapture(true));
+ $('startCamera').addEventListener('click',()=>startCapture(false));
+ $('stop').addEventListener('click',()=>stopStream());
+ $('mute').addEventListener('click',()=>{
+   if(!localStream)return;micMuted=!micMuted;localStream.getAudioTracks().forEach(t=>t.enabled=!micMuted);$('mute').textContent=micMuted?'Unmute Mic':'Mute Mic';
+ });
+ $('copy').addEventListener('click',async()=>{
+   try{await navigator.clipboard.writeText($('viewerLink').value);status('Viewer link copied. Send it to your viewers.')}
+   catch(e){$('viewerLink').select();status('Select and copy the viewer link manually.')}
+ });
+ async function initViewer(){
+   try{
+    const result=await makePeer();peer=result.p;
+    const conn=peer.connect(watchId,{reliable:true});
+    conn.on('open',()=>{conn.send({type:'request-stream'});status('Connected to broadcaster. Waiting for video…')});
+    conn.on('data',data=>{if(data&&data.type==='hello'){if(data.title)$('streamTitleDisplay').textContent=data.title;if(data.description)$('streamDescription').textContent=data.description}});
+    peer.on('call',call=>{
+      call.answer();
+      call.on('stream',remoteStream=>{
+       video.srcObject=remoteStream;video.muted=false;video.style.display='block';$('placeholder').classList.add('hidden');$('previewTitle').textContent='Waiting for stream…';setLive(true);status('You are watching live. If video does not appear, tap Reconnect.');
+       video.play().catch(()=>{status('Tap the video area or check your device media settings to start playback.')});
+      });
+      call.on('close',()=>{setLive(false);status('Broadcaster ended the stream or connection was lost.')});
+      call.on('error',()=>status('Stream connection failed. Try reconnecting.'));
+    });
+    peer.on('error',err=>status('Viewer connection error: '+err.type+'. Try reconnecting.'));
+   }catch(e){status('Could not connect to the broadcaster. Check the viewer link and try again.')}
+ }
+ $('reconnect').addEventListener('click',()=>location.reload());
+ if(isViewer)initViewer();else initHost();
+ window.addEventListener('pagehide',()=>{if(localStream)localStream.getTracks().forEach(t=>t.stop());if(peer)peer.destroy()});
+})();
+</script>
+</body>
+</html>
